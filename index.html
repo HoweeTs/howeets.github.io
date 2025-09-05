@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>加密页面</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/crypto-js@4.1.1/crypto-js.min.js"></script>
+    <!-- 使用支持加密ZIP的zip.js库 -->
+    <script src="https://cdn.jsdelivr.net/npm/@zip.js/zip.js@2.7.30/dist/zip.min.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#3B82F6',
+                        secondary: '#10B981',
+                        dark: '#1E293B',
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .password-input-focus {
+                @apply focus:ring-2 focus:ring-primary/50 focus:border-primary;
+            }
+            .btn-hover {
+                @apply hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200;
+            }
+            .loading-spin {
+                animation: spin 1s linear infinite;
+            }
+            @keyframes spin {
+                from { transform: rotate(0deg); }
+                to { transform: rotate(360deg); }
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen font-sans">
+    <!-- 密码输入界面 -->
+    <div id="passwordPrompt" class="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-gray-100 to-gray-200">
+        <div class="w-full max-w-md bg-white rounded-xl shadow-2xl overflow-hidden transform transition-all">
+            <div class="p-6 sm:p-8">
+                <div class="text-center mb-6">
+                    <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mb-4">
+                        <i class="fa fa-file-archive-o text-2xl text-primary"></i>
+                    </div>
+                    <h2 class="text-2xl font-bold text-gray-900">页面受保护</h2>
+                    <p class="mt-2 text-gray-500">请输入密码以查看内容</p>
+                </div>
+                
+                <form id="passwordForm" class="space-y-5">
+                    <div>
+                        <label for="password" class="block text-sm font-medium text-gray-700 mb-1">密码</label>
+                        <div class="relative">
+                            <input type="password" id="password" name="password" required
+                                class="w-full px-4 py-3 rounded-lg border border-gray-300 password-input-focus outline-none transition-all"
+                                placeholder="请输入密码">
+                            <button type="button" id="togglePassword" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                                <i class="fa fa-eye-slash"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="w-full bg-primary hover:bg-primary/90 text-white font-medium py-3 px-4 rounded-lg btn-hover flex items-center justify-center">
+                        <i class="fa fa-unlock-alt mr-2"></i> 
+                        <span id="submitText">UNLOCK</span>
+                        <i id="loadingIcon" class="fa fa-circle-o-notch loading-spin ml-2 hidden"></i>
+                    </button>
+                </form>
+                
+                <div id="errorMessage" class="mt-4 text-center text-red-500 text-sm hidden">
+                    <i class="fa fa-exclamation-circle mr-1"></i> 密码错误或资源损坏，请重试
+                </div>
+                
+                <div id="downloadErrorMessage" class="mt-4 text-center text-red-500 text-sm hidden">
+                    <i class="fa fa-exclamation-circle mr-1"></i> 获取资源失败，请检查路径
+                </div>
+                
+                <div id="unsupportedMessage" class="mt-4 text-center text-red-500 text-sm hidden">
+                    <i class="fa fa-exclamation-circle mr-1"></i> 不支持的加密方式
+                </div>
+            </div>
+            
+            <div class="bg-gray-50 px-6 py-4 border-t border-gray-100 text-center text-sm text-gray-500">
+                页面受保护
+            </div>
+        </div>
+    </div>
+
+    <!-- 解密后的内容将在这里显示 -->
+    <div id="contentContainer" class="hidden"></div>
+
+    <script>
+        // 页面加载完成后执行
+        document.addEventListener('DOMContentLoaded', function() {
+            const passwordForm = document.getElementById('passwordForm');
+            const passwordInput = document.getElementById('password');
+            const togglePassword = document.getElementById('togglePassword');
+            const errorMessage = document.getElementById('errorMessage');
+            const downloadErrorMessage = document.getElementById('downloadErrorMessage');
+            const unsupportedMessage = document.getElementById('unsupportedMessage');
+            const submitText = document.getElementById('submitText');
+            const loadingIcon = document.getElementById('loadingIcon');
+            const passwordPrompt = document.getElementById('passwordPrompt');
+            
+            // 切换密码可见性
+            togglePassword.addEventListener('click', function() {
+                const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+                passwordInput.setAttribute('type', type);
+                
+                // 切换图标
+                this.querySelector('i').classList.toggle('fa-eye');
+                this.querySelector('i').classList.toggle('fa-eye-slash');
+            });
+            
+            // 表单提交处理
+            passwordForm.addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                // 显示加载状态
+                submitText.textContent = '处理中';
+                loadingIcon.classList.remove('hidden');
+                passwordForm.querySelector('button').disabled = true;
+                errorMessage.classList.add('hidden');
+                downloadErrorMessage.classList.add('hidden');
+                unsupportedMessage.classList.add('hidden');
+                
+                const password = passwordInput.value;
+                
+                try {
+                    // 下载加密的ZIP文件
+                    const response = await fetch('page.zip');
+                    if (!response.ok) {
+                        throw new Error('文件下载失败');
+                    }
+                    
+                    // 获取文件的ArrayBuffer
+                    const arrayBuffer = await response.arrayBuffer();
+                    
+                    // 创建一个Blob对象
+                    const blob = new Blob([arrayBuffer], { type: 'application/zip' });
+                    
+                    // 使用zip.js处理加密ZIP文件
+                    const reader = new zip.ZipReader(new zip.BlobReader(blob), {
+                        password: password
+                    });
+                    
+                    // 获取ZIP文件中的所有条目
+                    const entries = await reader.getEntries();
+                    
+                    // 查找index.html
+                    const indexEntry = entries.find(entry => entry.filename === 'index.html');
+                    
+                    if (!indexEntry) {
+                        throw new Error('ZIP文件中未找到index.html');
+                    }
+                    
+                    // 读取index.html内容
+                    const content = await indexEntry.getData(new zip.TextWriter());
+                    
+                    // 关闭阅读器
+                    await reader.close();
+                    
+                    // 替换当前页面内容
+                    document.open();
+                    document.write(content);
+                    document.close();
+                    
+                } catch (err) {
+                    console.error('处理失败:', err);
+                    
+                    // 显示适当的错误消息
+                    if (err.message.includes('文件下载失败')) {
+                        downloadErrorMessage.classList.remove('hidden');
+                    } else if (err.message.includes('password') || err.message.includes('encrypted')) {
+                        errorMessage.classList.remove('hidden');
+                    } else if (err.message.includes('unsupported')) {
+                        unsupportedMessage.classList.remove('hidden');
+                    } else {
+                        errorMessage.classList.remove('hidden');
+                    }
+                    
+                    // 恢复按钮状态
+                    submitText.textContent = 'UNLOCK';
+                    loadingIcon.classList.add('hidden');
+                    passwordForm.querySelector('button').disabled = false;
+                    
+                    // 添加错误抖动动画
+                    passwordInput.classList.add('border-red-500');
+                    setTimeout(() => {
+                        passwordInput.classList.remove('border-red-500');
+                    }, 1000);
+                }
+            });
+        });
+    </script>
+</body>
+</html>
